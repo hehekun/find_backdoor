@@ -860,30 +860,12 @@ def parser():
     parser.main()
     parser.display(parser.tree.root)
 
+def main(binary):
 
-def assembler():
-    assem = Assembler()
-    assem.traverse(assem.tree.root)
-    assem.ass_file_handler.generate_ass_file()
-
-if __name__ == '__main__':
-    try:
-        opts, argvs = getopt.getopt(sys.argv[1:], 's:lpah', ['help'])
-    except:
-        print __doc__
-        exit()
-
-    for opt, argv in opts:
-        if opt in ['-h', '--h', '--help']:
-            print __doc__
-            exit()
-        elif opt == '-s':
-            file_name = argv.split('.')[0]
-            source_file = open(argv, 'r')
-            content = source_file.read()
-        elif opt == '-l':
-            lexer()
-        elif opt == '-p':
-            parser()
-        elif opt == '-a':
-            assembler()
+    global filename
+    global content 
+    filename = binary
+    print filename
+    source_file = open(filename, 'r')
+    content = source_file.read()
+    parser()

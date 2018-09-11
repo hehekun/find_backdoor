@@ -4,12 +4,9 @@
 import os
 import re
 import sys
-import filterr
-import replaces
+import compiler
 import find
 def main(name):
-    string = replaces.replaces(name)
-    filterr.filterr(name)
-    find.find(name)
+    compiler.main(name)
 if __name__ == '__main__':
-    main('./../1.c') 
+    main('./source.c') 
