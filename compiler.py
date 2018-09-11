@@ -108,9 +108,9 @@ class Lexer():
                         i = self.skip_blank(i + 7)
                     
                     elif content[i] == '\"' or content[i] == '<':
-
-                        i = self.skip_blank(i + 1)
                         tmp=content[i]
+                        i = self.skip_blank(i + 1)
+                       
                         if content[i] == '\"':
                             close_flag = '\"' 
   
@@ -193,7 +193,17 @@ class Lexer():
                     # self.print_log( '分隔符' , '\"' )
                     self.tokens.append(Token('SEPARATOR', '\"'))
                 i = self.skip_blank(i + 1)
-            # 如果是运算符
+
+            elif (content[i] == '/' and  content[i+1] == '/'):
+ 
+                while(content[i] != '\n'):
+                    i=i+1
+                i=i+1
+
+            elif (content[i] == '/' and  content[i+1] == '*'):
+                while(content[i-1] != '*'   or content[i-1] != '/' ):
+                    i=i+1
+                i=i+1
             elif content[i] in operators:
                 # 如果是++或者--
                 if (content[i] == '+' or content[i] == '-') and (
