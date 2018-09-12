@@ -5,6 +5,11 @@ import re
 import sys
 import getopt
 
+global togather
+togather = [];
+
+global relate
+relate =[];
 
 TOKEN_STYLE = {
     'KEY_WORD' :'KEY_WORD',
@@ -845,6 +850,593 @@ class Parser(object):
             self.display(child)
             child = child.right
 
+class Assembler(object):                                          
+    '''编译成汇编语言'''
+
+                                                               #start1231231232131231
+
+    def __init__(self):
+        self.parser = Parser()
+        self.parser.main()
+        # 生成的语法树
+        self.tree = self.parser.tree
+        # 要生成的汇编文件管理器
+        # 符号表
+        self.symbol_table = {}
+        # 语法类型
+        self.sentence_type = ['Sentence', 'Include', 'FunctionStatement',
+                              'Statement', 'FunctionCall', 'Assignment', 'Control', 'Expression', 'Return']
+        # 表达式中的符号栈
+        self.operator_stack = []
+        # 表达式中的操作符栈
+        self.operand_stack = []
+        # 已经声明了多少个label
+        self.label_cnt = 0
+        # ifelse中的标签
+        self.labels_ifelse = {}
+
+    # include句型
+    def _include(self, node=None):
+        pass
+
+    # 函数定义句型
+    def _function_statement(self, node=None):
+        # 第一个儿子
+        current_node = node.first_son
+        while current_node:
+            if current_node.value == 'FunctionName':
+                if current_node.first_son.value != 'main':
+                    print 'other function statement except for main is not supported!'
+                    exit()
+
+            elif current_node.value == 'Sentence':
+                self.traverse(current_node.first_son)
+            current_node = current_node.right
+
+    # 简单的sizeof
+    def _sizeof(self, _type):
+        size = -1
+        if _type == 'int' or _type == 'float' or _type == 'long':
+            size = 4
+        elif _type == 'char':
+            size = 1
+        elif _type == 'double':
+            size = 8
+        return str(size)
+
+    # 声明语句
+    def _statement(self, node=None):
+        shengmingyuju=[];
+        shengming=[];
+        # 对应的汇编代码中的声明语句
+        line = None
+        # 1:初始化的，0:没有初始化
+        flag = 0
+        # 变量数据类型
+        variable_field_type = None
+        # 变量类型，是数组还是单个变量
+        variable_type = None
+        # 变量名
+        variable_name = None
+        current_node = node.first_son
+        while current_node:
+            # 类型
+            if current_node.value == 'Type':
+                variable_field_type = current_node.first_son.value
+                shengming.append(variable_field_type)
+            # 变量名
+            elif current_node.type == 'IDENTIFIER':
+                variable_name = current_node.value
+                variable_type = current_node.extra_info['type']
+                line = '.lcomm ' + variable_name + \
+                    ', ' + self._sizeof(variable_field_type)
+                shengming.append(variable_name)
+            # 数组元素
+            elif current_node.value == 'ConstantList':
+                line = variable_name + ': .' + variable_field_type + ' '
+                tmp_node = current_node.first_son
+                # 保存该数组
+                array = []
+                while tmp_node:
+                    array.append(tmp_node.value)
+                    tmp_node = tmp_node.right
+                line += ', '.join(array)
+            current_node = current_node.right
+        togather.append(shengming)
+        shengming=[];
+        # 将该变量存入符号表
+        self.symbol_table[variable_name] = {
+            'type': variable_type, 'field_type': variable_field_type}
+
+    # 函数调用
+    def _function_call(self, node=None):                    #函数
+        hanshuyuju = [];
+        hanshu=[];
+        current_node = node.first_son
+        func_name = None
+        parameter_list = []
+        while current_node:
+            # 函数名字
+            if current_node.type == 'FUNCTION_NAME':
+                func_name = current_node.value
+                hanshu.append(func_name)
+                if func_name != 'scanf' and func_name != 'printf':
+                    print 'function call except scanf and printf not supported yet!'
+                    exit()
+            # 函数参数
+            elif current_node.value == 'CallParameterList':
+                tmp_node = current_node.first_son
+                while tmp_node:
+                    # 是常数
+                    if tmp_node.type == 'DIGIT_CONSTANT' or tmp_node.type == 'STRING_CONSTANT':
+                        # 汇编中该参数的名称
+                        hanshu.append(tmp_node.type)
+                        hanshu.append(tmp_node.value)
+                        label = 'label_' + str(self.label_cnt)
+                        self.label_cnt += 1
+                        if tmp_node.type == 'STRING_CONSTANT':
+                            # 添加数据段中该参数定义
+                            line = label + ': .asciz "' + tmp_node.value + '"'
+                        else:
+                            print 'in functionc_call digital constant parameter is not supported yet!'
+                            exit()
+                        self.symbol_table[label] = {
+                            'type': 'STRING_CONSTANT', 'value': tmp_node.value}
+                        parameter_list.append(label)
+                    # 是某个变量
+                    elif tmp_node.type == 'IDENTIFIER':
+                        parameter_list.append(tmp_node.value)
+                        hanshu.append(tmp_node.type)
+                        hanshu.append(tmp_node.value)
+                    elif tmp_node.type == 'ADDRESS':
+                        hanshu.append(tmp_node.type)
+                        hanshu.append(tmp_node.value)
+                        pass
+                    else:
+                        print tmp_node.value
+                        print tmp_node.type
+                        print 'parameter type is not supported yet!'
+                        exit()
+                    tmp_node = tmp_node.right
+            current_node = current_node.right
+        togather.append(hanshu)
+        hanshu=[];
+        # 添加到代码段
+        if func_name == 'printf':
+            #%esp要+的值
+            num = 0
+            for parameter in parameter_list[::-1]:
+                # 如果该参数的类型是字符串常量
+                if self.symbol_table[parameter]['type'] == 'STRING_CONSTANT':
+                    line = 'pushl $' + parameter
+                    num += 1
+                elif self.symbol_table[parameter]['type'] == 'VARIABLE':
+                    field_type = self.symbol_table[parameter]['field_type']
+                    if field_type == 'int':
+                        line = 'pushl ' + parameter
+                        num += 1
+                    elif field_type == 'float':
+                        line = 'flds ' + parameter
+                        line = r'subl $8, %esp'
+                        line = r'fstpl (%esp)'
+                        num += 2
+                    else:
+                        print 'field type except int and float is not supported yet!'
+                        exit()
+                else:
+                    print 'parameter type not supported in printf yet!'
+                    exit()
+            line = 'call printf'
+            line = 'add $' + str(num * 4) + ', %esp'
+        elif func_name == 'scanf':
+            num = 0
+            for parameter in parameter_list[::-1]:
+                parameter_type = self.symbol_table[parameter]['type']
+                if parameter_type == 'STRING_CONSTANT' or parameter_type == 'VARIABLE':
+                    num += 1
+                    line = 'pushl $' + parameter
+                else:
+                    print 'parameter type not supported in scanf!'
+                    exit()
+            line = 'call scanf'
+            line = 'add $' + str(num * 4) + ', %esp'
+    # 赋值语句
+
+    def _assignment(self, node=None):
+
+        fuzhiyuju=[];
+        fuzhi=[];
+
+        current_node = node.first_son
+
+        if current_node.type == 'IDENTIFIER' and current_node.right.value == 'Expression':
+            expres = self._expression(current_node.right)
+            
+            fuzhi.append(current_node.value)
+            # 该变量的类型
+            field_type = self.symbol_table[current_node.value]['field_type']
+            if field_type == 'int':
+                # 常数
+                if expres['type'] == 'CONSTANT':
+                    line = 'movl $' + \
+                        expres['value'] + ', ' + current_node.value
+                elif expres['type'] == 'VARIABLE':
+                    line = 'movl ' + expres['value'] + ', ' + '%edi'
+                    line = 'movl %edi, ' + current_node.value
+                else:
+                    pass
+            elif field_type == 'float':
+                if expres['type'] == 'CONSTANT':
+                    line = 'movl $' + \
+                        expres['value'] + ', ' + current_node.value
+                    line = 'filds ' + current_node.value
+                    line = 'fstps ' + current_node.value
+                else:
+                    line = 'fstps ' + current_node.value
+            else:
+                print 'field type except int and float not supported!'
+                exit()
+        else:
+            print 'assignment wrong.'
+            exit()
+        togather.append(fuzhi)
+        fuzhi=[];
+
+    # if else语句
+    def _control_if(self, node=None):
+        ifyuju=[];
+        ifju=[];
+        
+        current_node = node.first_son
+        self.labels_ifelse['label_else'] = 'label_' + str(self.label_cnt)
+        self.label_cnt += 1
+        self.labels_ifelse['label_end'] = 'label_' + str(self.label_cnt)
+        self.label_cnt += 1
+        while current_node:
+            if current_node.value == 'IfControl':
+                togather.append("if(")
+                
+                if current_node.first_son.value != 'Expression' or current_node.first_son.right.value != 'Sentence':
+                    print 'control_if error!'
+                    exit()
+                self._expression(current_node.first_son)
+                togather.append(")")
+                togather.append("{")
+                self.traverse(current_node.first_son.right.first_son)
+                line = 'jmp ' + self.labels_ifelse['label_end']
+                line = self.labels_ifelse['label_else'] + ':'
+                togather.append("}")
+            elif current_node.value == 'ElseControl':
+                togather.append("else")
+                togather.append("{")
+                self.traverse(current_node.first_son)
+                line = self.labels_ifelse['label_end'] + ':'
+                togather.append("}")
+            current_node = current_node.right
+
+    # while语句
+    def _control_while(self, node=None):
+        print 'while not supported yet!'
+
+    # return语句
+    def _return(self, node=None):
+        current_node = node.first_son
+        if current_node.value != 'return' or current_node.right.value != 'Expression':
+            print 'return error!'
+            exit()
+        else:
+            current_node = current_node.right
+            expres = self._expression(current_node)
+            if expres['type'] == 'CONSTANT':
+                line = 'pushl $' + expres['value']
+                line = 'call exit'
+            else:
+                print 'return type not supported!'
+                exit()
+
+    # 遍历表达式
+    def _traverse_expression(self, node=None):
+        if not node:
+            return
+        if node.type == '_Variable':
+            self.operand_stack.append(
+                {'type': 'VARIABLE', 'operand': node.value})
+        elif node.type == '_Constant':
+            self.operand_stack.append(
+                {'type': 'CONSTANT', 'operand': node.value})
+        elif node.type == '_Operator':
+            self.operator_stack.append(node.value)
+        elif node.type == '_ArrayName':
+            self.operand_stack.append(
+                {'type': 'ARRAY_ITEM', 'operand': [node.value, node.right.value]})
+            return
+        current_node = node.first_son
+        while current_node:
+            self._traverse_expression(current_node)
+            current_node = current_node.right
+
+    # 判断一个变量是不是float类型
+    def _is_float(self, operand):
+        return operand['type'] == 'VARIABLE' and self.symbol_table[operand['operand']]['field_type'] == 'float'
+    # 判断两个操作数中是否含有float类型的数
+
+    def _contain_float(self, operand_a, operand_b):
+        return self._is_float(operand_a) or self._is_float(operand_b)
+
+    # 表达式
+    def _expression(self, node=None):
+
+        biaodashiyuju=[];
+        biaodashi=[];
+        if node.type == 'Constant':
+            return {'type': 'CONSTANT', 'value': node.first_son.value}
+        # 先清空
+        self.operator_priority = []
+        self.operand_stack = []
+        # 遍历该表达式
+        self._traverse_expression(node)
+
+        # 双目运算符
+        double_operators = ['+', '-', '*', '/', '>', '<', '>=', '<=']
+        # 单目运算符
+        single_operators = ['++', '--']
+        # 运算符对汇编指令的映射
+        operator_map = {'>': 'jbe', '<': 'jae', '>=': 'jb', '<=': 'ja'}
+        while self.operator_stack:
+            operator = self.operator_stack.pop()
+            if operator in double_operators:
+                operand_b = self.operand_stack.pop()
+                operand_a = self.operand_stack.pop()
+                contain_float = self._contain_float(operand_a, operand_b)
+                biaodashi.append(operand_a['operand']);
+                biaodashi.append(operator);
+                biaodashi.append(operand_b['operand']);
+                togather.append(biaodashi);
+                if operator == '+':
+                    if contain_float:
+                        line = 'flds ' if self._is_float(
+                            operand_a) else 'filds '
+                        line += operand_a['operand']
+                        line = 'fadd ' if self._is_float(
+                            operand_b) else 'fiadd '
+                        line += operand_b['operand']
+
+                        # 计算结果保存到bss_tmp中
+                        line = 'fstps bss_tmp'
+                        line = 'flds bss_tmp'
+                        # 计算结果压栈
+                        self.operand_stack.append(
+                            {'type': 'VARIABLE', 'operand': 'bss_tmp'})
+                        # 记录到符号表中
+                        self.symbol_table['bss_tmp'] = {
+                            'type': 'IDENTIFIER', 'field_type': 'float'}
+                    else:
+                        # 第一个操作数
+                        if operand_a['type'] == 'ARRAY_ITEM':
+                            line = 'movl ' + \
+                                operand_a['operand'][1] + r', %edi'
+                            line = 'movl ' + \
+                                operand_a['operand'][0] + r'(, %edi, 4), %eax'
+                        elif operand_a['type'] == 'VARIABLE':
+                            line = 'movl ' + operand_a['operand'] + r', %eax'
+                        elif operand_a['type'] == 'CONSTANT':
+                            line = 'movl $' + operand_a['operand'] + r', %eax'
+                        # 加上第二个操作数
+                        if operand_b['type'] == 'ARRAY_ITEM':
+                            line = 'movl ' + \
+                                operand_b['operand'][1] + r', %edi'
+                            line = 'addl ' + \
+                                operand_b['operand'][0] + r'(, %edi, 4), %eax'
+                        elif operand_b['type'] == 'VARIABLE':
+                            line = 'addl ' + operand_b['operand'] + r', %eax'
+                        elif operand_b['type'] == 'CONSTANT':
+                            line = 'addl $' + operand_b['operand'] + r', %eax'
+                        # 赋值给临时操作数
+                        line = 'movl %eax, bss_tmp'
+                        # 计算结果压栈
+                        self.operand_stack.append(
+                            {'type': 'VARIABLE', 'operand': 'bss_tmp'})
+                        # 记录到符号表中
+                        self.symbol_table['bss_tmp'] = {
+                            'type': 'IDENTIFIER', 'field_type': 'int'}
+
+                elif operator == '-':
+                    if contain_float:
+                        # 操作数a
+                        if self._is_float(operand_a):
+                            if operand_a['type'] == 'VARIABLE':
+                                line = 'flds ' if self._is_float(
+                                    operand_a) else 'filds '
+                                line += operand_a['operand']
+                            else:
+                                pass
+                        else:
+                            if operand_a['type'] == 'CONSTANT':
+                                line = 'movl $' + \
+                                    operand_a['operand'] + ', bss_tmp'
+                            else:
+                                pass
+                        # 操作数b
+                        if self._is_float(operand_b):
+                            if operand_b['type'] == 'VARIABLE':
+                                line = 'flds ' if self._is_float(
+                                    operand_b) else 'filds '
+                                line += operand_b['operand']
+                                line = 'fsub ' + operand_b['operand']
+                            else:
+                                pass
+                        else:
+                            if operand_b['type'] == 'CONSTANT':
+                                line = 'movl $' + \
+                                    operand_b['operand'] + ', bss_tmp'
+                                line = 'fisub bss_tmp'
+                            else:
+                                pass
+                        # 计算结果保存到bss_tmp中
+                        line = 'fstps bss_tmp'
+                        line = 'flds bss_tmp'
+                        # 计算结果压栈
+                        self.operand_stack.append(
+                            {'type': 'VARIABLE', 'operand': 'bss_tmp'})
+                        # 记录到符号表中
+                        self.symbol_table['bss_tmp'] = {
+                            'type': 'IDENTIFIER', 'field_type': 'float'}
+                    else:
+                        print 'not supported yet!'
+                        exit()
+                # 尚未考虑浮点数，只考虑整数乘法
+                elif operator == '*':
+                    if operand_a['type'] == 'ARRAY_ITEM':
+                        line = 'movl ' + operand_a['operand'][1] + r', %edi'
+                        line = 'movl ' + \
+                            operand_a['operand'][0] + r'(, %edi, 4), %eax'
+                    else:
+                        print 'other MUL not supported yet!'
+                        exit()
+
+                    if operand_b['type'] == 'ARRAY_ITEM':
+                        line = 'movl ' + operand_b['operand'][1] + r', %edi'
+                        # 相乘
+                        line = 'mull ' + \
+                            operand_b['operand'][0] + '(, %edi, 4)'
+                    else:
+                        print 'other MUL not supported yet!'
+                        exit()
+                    # 将所得结果压入栈
+                    line = r'movl %eax, bss_tmp'
+                    self.operand_stack.append(
+                        {'type': 'VARIABLE', 'operand': 'bss_tmp'})
+                    self.symbol_table['bss_tmp'] = {
+                        'type': 'IDENTIFIER', 'field_type': 'int'}
+                elif operator == '/':
+                    if contain_float:
+                        line = 'flds ' if self._is_float(
+                            operand_a) else 'filds '
+                        line += operand_a['operand']
+
+                        line = 'fdiv ' if self._is_float(
+                            operand_b) else 'fidiv '
+                        line += operand_b['operand']
+
+                        # 计算结果保存到bss_tmp中
+                        line = 'fstps bss_tmp'
+                        line = 'flds bss_tmp'
+                        # 计算结果压栈
+                        self.operand_stack.append(
+                            {'type': 'VARIABLE', 'operand': 'bss_tmp'})
+                        # 记录到符号表中
+                        self.symbol_table['bss_tmp'] = {
+                            'type': 'IDENTIFIER', 'field_type': 'float'}
+                    else:
+                        pass
+                elif operator == '>=':
+                    if contain_float:
+                        if self._is_float(operand_a):
+                            if operand_a['type'] == 'VARIABLE':
+                                line = 'flds ' if self._is_float(
+                                    operand_a) else 'filds '
+                                line += operand_a['operand']
+                            else:
+                                print 'array item not supported when >='
+                                exit()
+                        else:
+                            pass
+
+                        if self._is_float(operand_b):
+                            if operand_b['type'] == 'VARIABLE':
+                                line = 'fcom ' + operand_b['operand']
+                            else:
+                                print 'array item not supported when >='
+                                exit()
+                        else:
+                            if operand_b['type'] == 'CONSTANT':
+                                line = 'movl $' + \
+                                    operand_b['operand'] + ', bss_tmp'
+                                line = 'fcom bss_tmp'
+                                line = operator_map[
+                                    '>='] + ' ' + self.labels_ifelse['label_else']
+                            else:
+                                pass
+                    else:
+                        pass
+                elif operator == '<':
+                    if contain_float:
+                        pass
+                    else:
+                        line = 'movl $' if operand_a[
+                            'type'] == 'CONSTANT' else 'movl '
+                        line += operand_a['operand'] + ', %edi'
+
+                        line = 'movl $' if operand_b[
+                            'type'] == 'CONSTANT' else 'movl '
+                        line += operand_b['operand'] + ', %esi'
+
+                        line = r'cmpl %esi, %edi'
+
+                        line = operator_map[
+                            '<'] + ' ' + 'label_' + str(self.label_cnt)
+
+            elif operator in single_operators:
+                operand = self.operand_stack.pop()
+                if operator == '++':
+                    line = 'incl ' + operand['operand']
+                elif operator == '--':
+                    pass
+            else:
+                print 'operator not supported!'
+                exit()
+        result = {'type': self.operand_stack[0]['type'], 'value': self.operand_stack[
+            0]['operand']} if self.operand_stack else {'type': '', 'value': ''}
+        return result
+
+    # 处理某一种句型
+    def _handler_block(self, node=None):
+        if not node:
+            return
+        # 下一个将要遍历的节点
+        if node.value in self.sentence_type:
+            # 如果是根节点
+            if node.value == 'Sentence':
+                self.traverse(node.first_son)
+            # include语句
+            elif node.value == 'Include':
+                self._include(node)
+            # 函数声明
+            elif node.value == 'FunctionStatement':
+                self._function_statement(node)
+            # 声明语句
+            elif node.value == 'Statement':
+                self._statement(node)
+            # 函数调用
+            elif node.value == 'FunctionCall':
+                self._function_call(node)
+            # 赋值语句
+            elif node.value == 'Assignment':
+                self._assignment(node)
+            # 控制语句
+            elif node.value == 'Control':
+                if node.type == 'IfElseControl':
+                    self._control_if(node)
+                else:
+                    print 'control type not supported!'
+                    exit()
+            # 表达式语句
+            elif node.value == 'Expression':
+                self._expression(node)
+            # return语句
+            elif node.value == 'Return':
+                self._return(node)
+            else:
+                print 'sentenct type not supported yet！'
+                exit()
+
+    # 遍历节点
+    def traverse(self, node=None):
+        self._handler_block(node)
+        next_node = node.right
+        while next_node:
+            self._handler_block(next_node)
+            next_node = next_node.right
 
 
 
@@ -860,6 +1452,120 @@ def parser():
     parser.main()
     parser.display(parser.tree.root)
 
+def assembler():
+    assem = Assembler()
+    assem.traverse(assem.tree.root)
+
+def adjust():
+    rel=[];
+    double_operators = ['+', '-', '*', '/']
+    type_1=['int', 'float', 'double', 'char', 'void']
+    x=100;
+    bianliang=[];
+    for i in range(0,100):
+        if i < len(togather):
+            if len(togather[i]) == 2 :
+                if (togather[i][0] in type_1):
+                   bianliang.append(togather[i][1]);
+
+            else:
+                continue
+        else:
+            break
+    for i in range(0,100):
+        if i < len(togather):
+
+            if len(togather[i]) == 3 :
+                if (togather[i][1] in double_operators):
+                    togather[i].insert(0,togather[i+1][0]) 
+                    togather[i].insert(1,'=')
+                    togather.pop(i+1)
+                    rel.append(togather[i][0]);
+                    rel.append(togather[i][2]);
+                    rel.append(togather[i][4]);
+                    relate.append(rel)
+                    rel=[];
+                    if togather[i][2] in bianliang:
+                        if togather[i][4] in bianliang:
+                            togather.pop(i-2)
+                            togather.pop(i-2)
+                            i=0;
+
+
+            else:
+                continue
+        else:
+            break
+    print relate
+
+
+def find(word):
+    mark =['if(','(',')','{','}','else'];
+    double_operators = ['+', '-', '*', '/'];
+
+    fanhui=[];
+    tiaojian=[];
+    tiaojianmark=[];
+    checklist=[];
+    checklist.append(word);
+    zhuti_start=0;
+    zhuti_end=0;
+
+    for i in range(0,100):
+        if i < len(togather):
+            if togather[i] == "if(":
+                tiaojianmark.append(i)
+                if len(tiaojianmark) == 2:
+                    tiaojian.append(tiaojianmark)
+                    tiaojianmark=[];
+            elif togather[i] == ")":
+                tiaojianmark.append(i)
+                if len(tiaojianmark) == 2:
+                    tiaojian.append(tiaojianmark)
+                    tiaojianmark=[];
+                
+            else:
+                continue
+        else:
+            break
+
+    for i in relate:
+        for j in i:
+            if j in checklist:
+                for x in i:
+                    if x in checklist:
+                        continue
+                    else:
+                        checklist.append(x);
+    for i in relate:
+        for j in i:
+            if j in checklist:
+                for x in i:
+                    if x in checklist:
+                        continue
+                    else:
+                        checklist.append(x);       
+
+    for i in togather:
+        for j in i:
+            if j in checklist:
+                if i in fanhui:
+                    continue
+                else:
+                    fanhui.append(i);
+            elif j in mark:
+                fanhui.append(i);
+
+                
+
+
+
+    print togather
+    print fanhui
+
+    return fanhui
+
+
 def main(binary):
 
     global filename
@@ -869,3 +1575,7 @@ def main(binary):
     source_file = open(filename, 'r')
     content = source_file.read()
     parser()
+    assembler()
+    adjust()
+    find('a')
+
